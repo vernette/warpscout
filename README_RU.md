@@ -170,6 +170,12 @@ curl -fsSL https://raw.githubusercontent.com/vernette/warpscout/master/install.s
 .\warpscout.exe scan -p awg -P -exclude-node DME -conf warp.conf
 ```
 
+Чтобы сохранить конфиги сразу для нескольких лучших эндпоинтов, используйте `-configs N` (например, `-conf warp.conf -configs 3` создаст `warp-1.conf`, `warp-2.conf`, `warp-3.conf`):
+
+```powershell
+.\warpscout.exe scan -p awg -P -exclude-node DME -conf warp.conf -configs 3
+```
+
 Файл `warp.conf` импортируется в клиент [AmneziaWG](https://amnezia.org/) (Windows, Android, Linux, macOS) как обычный конфиг. Если сканировали с `-p wg`, получится обычный конфиг WireGuard.
 
 Другие форматы (mihomo, usque), DNS, MTU и маршруты - в разделе [конфиги и фильтры](docs/ru/configs.md).
@@ -256,6 +262,7 @@ curl -fsSL https://raw.githubusercontent.com/vernette/warpscout/master/install.s
 | `-P, -tun-ping`         | Измерить задержку и потери внутри туннеля, отсеять оборванные эндпоинты                         |
 | `-best`                 | Вместо таблиц напечатать один лучший адрес `ip:port`                                            |
 | `-conf FILE`            | Записать готовый конфиг для лучшего эндпоинта (`-conf -` печатает его в терминал)               |
+| `-configs N`            | Записать конфиги для N лучших эндпоинтов (`-conf` задаёт базовое имя, по умолчанию `warp.conf`)|
 | `-node`, `-country`     | Оставить только эти ноды или страны, списком через запятую                                      |
 | `-exclude-node`, `-exclude-country` | Наоборот, выбросить их. Складывается с предыдущими                                 |
 | `-n, -sample N`         | Сколько адресов пробовать в каждой подсети (по умолчанию 5)                                     |

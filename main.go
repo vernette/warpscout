@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"sync/atomic"
@@ -206,8 +207,8 @@ func runScanCmd(ctx context.Context, opts options) error {
 		writeConsole(os.Stdout, ph, consoleRenderer(os.Stdout), opts.tunPingCheck)
 	}
 
-	if opts.conf != "" {
-		if err := writeConfFile(opts, ph); outErr == nil {
+	if opts.conf != "" || opts.configs > 0 {
+		if err := writeConfFiles(opts, ph); outErr == nil {
 			outErr = err
 		}
 	}
@@ -381,6 +382,43 @@ const (
 	masqueBlockedMsg = "no MASQUE endpoint passed data - this network blocks it, try -p awg"
 )
 
+func defaultConfPath(o options, run protoRun) string {
+	if isMihomo(o.confType) {
+		return "warp.yaml"
+	}
+	if run.isMASQUE() {
+		return "config.json"
+	}
+	return "warp.conf"
+}
+
+func indexedConfPath(base string, index int) string {
+	ext := filepath.Ext(base)
+	stem := strings.TrimSuffix(base, ext)
+	return fmt.Sprintf("%s-%d%s", stem, index, ext)
+}
+
+func printConfNotice(opts options, endpoint, path string, run protoRun) {
+	fmt.Fprintln(os.Stderr, errPal.dim(fmt.Sprintf("\n%s config for %s written to %s", run.name, endpoint, path)))
+	if outer != nil {
+		note := fmt.Sprintf("  it holds both tunnels of the chain (outer %s) - split it in two before use", outer.label)
+		if isMihomo(opts.confType) {
+			note = fmt.Sprintf("  it chains through %s itself (dialer-proxy)", outer.label)
+		}
+		fmt.Fprintln(os.Stderr, errPal.dim(note))
+	}
+	if run.isMASQUE() && !isMihomo(opts.confType) {
+		if _, port, err := net.SplitHostPort(endpoint); err == nil {
+			h2 := ""
+			if run.isH2() {
+				h2 = " --http2"
+			}
+			fmt.Fprintln(os.Stderr, errPal.dim(fmt.Sprintf(
+				"  run it with: usque socks -c %s -P %s -s %s%s", path, port, masqueSNI, h2)))
+		}
+	}
+}
+
 func writeConfFile(opts options, ph phaseResult) error {
 	best, ok := bestOverall(ph)
 	if !ok {
@@ -397,23 +435,43 @@ func writeConfFile(opts options, ph phaseResult) error {
 	if opts.conf == confStdout {
 		return nil
 	}
-	fmt.Fprintln(os.Stderr, errPal.dim(fmt.Sprintf("\n%s config for %s written to %s", ph.run.name, best.endpoint, opts.conf)))
-	if outer != nil {
-		note := fmt.Sprintf("  it holds both tunnels of the chain (outer %s) - split it in two before use", outer.label)
-		if isMihomo(opts.confType) {
-			note = fmt.Sprintf("  it chains through %s itself (dialer-proxy)", outer.label)
-		}
-		fmt.Fprintln(os.Stderr, errPal.dim(note))
+	printConfNotice(opts, best.endpoint, opts.conf, ph.run)
+	return nil
+}
+
+func writeConfFiles(opts options, ph phaseResult) error {
+	if opts.configs == 0 {
+		return writeConfFile(opts, ph)
 	}
-	if ph.run.isMASQUE() && !isMihomo(opts.confType) {
-		if _, port, err := net.SplitHostPort(best.endpoint); err == nil {
-			h2 := ""
-			if ph.run.isH2() {
-				h2 = " --http2"
-			}
-			fmt.Fprintln(os.Stderr, errPal.dim(fmt.Sprintf(
-				"  run it with: usque socks -c %s -P %s -s %s%s", opts.conf, port, masqueSNI, h2)))
+
+	working := workingSorted(ph.results)
+	avail := len(working)
+	if avail == 0 {
+		msg := fmt.Sprintf("no working endpoints found: requested %d configs, 0 written", opts.configs)
+		fmt.Fprintln(os.Stderr, errPal.fail(msg))
+		return fmt.Errorf("%s", msg)
+	}
+
+	count := opts.configs
+	if count > avail {
+		fmt.Fprintln(os.Stderr, errPal.warn(fmt.Sprintf("requested %d configs, but only %d working endpoints found: writing %d configs", count, avail, avail)))
+		count = avail
+	}
+
+	basePath := opts.conf
+	if basePath == "" {
+		basePath = defaultConfPath(opts, ph.run)
+	}
+
+	for i := 0; i < count; i++ {
+		r := working[i]
+		path := indexedConfPath(basePath, i+1)
+		fileOpts := opts
+		fileOpts.conf = path
+		if err := writeConf(fileOpts, r.endpoint, ph.run); err != nil {
+			return fmt.Errorf("failed to write %s: %v", path, err)
 		}
+		printConfNotice(opts, r.endpoint, path, ph.run)
 	}
 	return nil
 }

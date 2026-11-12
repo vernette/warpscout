@@ -1480,6 +1480,114 @@ func TestWriteConfFile(t *testing.T) {
 	}
 }
 
+func TestIndexedConfPath(t *testing.T) {
+	cases := []struct {
+		base  string
+		index int
+		want  string
+	}{
+		{"warp.conf", 1, "warp-1.conf"},
+		{"warp.conf", 3, "warp-3.conf"},
+		{"config.json", 2, "config-2.json"},
+		{"sub/dir/warp.yaml", 1, "sub/dir/warp-1.yaml"},
+		{"simple", 1, "simple-1"},
+	}
+	for _, c := range cases {
+		if got := indexedConfPath(c.base, c.index); got != c.want {
+			t.Errorf("indexedConfPath(%q, %d) = %q, want %q", c.base, c.index, got, c.want)
+		}
+	}
+}
+
+func TestWriteConfFiles(t *testing.T) {
+	run := protoRun{kindWG, protoWG}
+	ep1 := endpointResult{endpoint: "1.2.3.4:2408", ok: true, durable: true, epPing: 10 * time.Millisecond}
+	ep2 := endpointResult{endpoint: "5.6.7.8:2408", ok: true, durable: true, epPing: 20 * time.Millisecond}
+	working := phaseResult{run, []endpointResult{ep1, ep2}}
+
+	dir := t.TempDir()
+	confBase := filepath.Join(dir, "myconf.conf")
+
+	if err := writeConfFiles(options{conf: confBase, configs: 2}, working); err != nil {
+		t.Fatalf("writeConfFiles: %v", err)
+	}
+	path1 := filepath.Join(dir, "myconf-1.conf")
+	path2 := filepath.Join(dir, "myconf-2.conf")
+	data1, err := os.ReadFile(path1)
+	if err != nil {
+		t.Fatalf("missing %s: %v", path1, err)
+	}
+	data2, err := os.ReadFile(path2)
+	if err != nil {
+		t.Fatalf("missing %s: %v", path2, err)
+	}
+	if !strings.Contains(string(data1), "Endpoint = "+ep1.endpoint) {
+		t.Errorf("myconf-1.conf missing %s:\n%s", ep1.endpoint, data1)
+	}
+	if !strings.Contains(string(data2), "Endpoint = "+ep2.endpoint) {
+		t.Errorf("myconf-2.conf missing %s:\n%s", ep2.endpoint, data2)
+	}
+
+	dirPartial := t.TempDir()
+	confBasePartial := filepath.Join(dirPartial, "partial.conf")
+	if err := writeConfFiles(options{conf: confBasePartial, configs: 3}, working); err != nil {
+		t.Fatalf("writeConfFiles partial: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dirPartial, "partial-1.conf")); err != nil {
+		t.Errorf("partial-1.conf not written")
+	}
+	if _, err := os.Stat(filepath.Join(dirPartial, "partial-2.conf")); err != nil {
+		t.Errorf("partial-2.conf not written")
+	}
+	if _, err := os.Stat(filepath.Join(dirPartial, "partial-3.conf")); err == nil {
+		t.Errorf("partial-3.conf should not exist")
+	}
+
+	dirZero := t.TempDir()
+	confBaseZero := filepath.Join(dirZero, "zero.conf")
+	torn := phaseResult{run, []endpointResult{{endpoint: ep1.endpoint, ok: true}}}
+	if err := writeConfFiles(options{conf: confBaseZero, configs: 2}, torn); err == nil {
+		t.Error("expected error when 0 working endpoints, got nil")
+	}
+	if _, err := os.Stat(filepath.Join(dirZero, "zero-1.conf")); err == nil {
+		t.Errorf("zero-1.conf was written when no working endpoints")
+	}
+
+	dirDefault := t.TempDir()
+	t.Chdir(dirDefault)
+	if err := writeConfFiles(options{configs: 2}, working); err != nil {
+		t.Fatalf("writeConfFiles default base: %v", err)
+	}
+	if _, err := os.Stat("warp-1.conf"); err != nil {
+		t.Errorf("warp-1.conf not written for default base: %v", err)
+	}
+	if _, err := os.Stat("warp-2.conf"); err != nil {
+		t.Errorf("warp-2.conf not written for default base: %v", err)
+	}
+}
+
+func TestCheckConfigs(t *testing.T) {
+	cases := []struct {
+		configs int
+		conf    string
+		visited bool
+		wantErr bool
+	}{
+		{configs: 0, conf: "", visited: false, wantErr: false},
+		{configs: 2, conf: "warp.conf", visited: true, wantErr: false},
+		{configs: 2, conf: "", visited: true, wantErr: false},
+		{configs: 0, conf: "", visited: true, wantErr: true},
+		{configs: -1, conf: "", visited: true, wantErr: true},
+		{configs: 2, conf: confStdout, visited: true, wantErr: true},
+	}
+	for _, c := range cases {
+		err := checkConfigs(c.configs, c.conf, c.visited)
+		if (err != nil) != c.wantErr {
+			t.Errorf("checkConfigs(%d, %q, %v) err = %v, wantErr = %v", c.configs, c.conf, c.visited, err, c.wantErr)
+		}
+	}
+}
+
 func TestReportPingColumns(t *testing.T) {
 	r := endpointResult{
 		endpoint: "1.2.3.4:2408",

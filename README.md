@@ -170,6 +170,12 @@ Or the other way round - keep only the countries or nodes you want:
 .\warpscout.exe scan -p awg -P -exclude-node DME -conf warp.conf
 ```
 
+To save configs for multiple top endpoints at once, use `-configs N` (e.g. `-conf warp.conf -configs 3` generates `warp-1.conf`, `warp-2.conf`, `warp-3.conf`):
+
+```powershell
+.\warpscout.exe scan -p awg -P -exclude-node DME -conf warp.conf -configs 3
+```
+
 Import `warp.conf` into the [AmneziaWG](https://amnezia.org/) client (Windows, Android, Linux, macOS) like any other config. If you scanned with `-p wg`, you get a plain WireGuard config.
 
 Other formats (mihomo, usque), DNS, MTU and routing are covered in [configs and filters](docs/en/configs.md).
@@ -256,6 +262,7 @@ Torn-down endpoints are never picked by `-best` or `-conf`. They are shown so yo
 | `-P, -tun-ping`         | Measure latency and loss inside the tunnel, and weed out torn-down endpoints                      |
 | `-best`                 | Print one best `ip:port` instead of the tables                                                    |
 | `-conf FILE`            | Write a ready config for the best endpoint (`-conf -` prints it instead)                          |
+| `-configs N`            | Write configs for the top N endpoints (`-conf` sets the base filename, default `warp.conf`)      |
 | `-node`, `-country`     | Keep only these nodes or countries, comma-separated                                               |
 | `-exclude-node`, `-exclude-country` | Drop them instead. Stacks with the two above                                          |
 | `-n, -sample N`         | Addresses to try per subnet (default 5)                                                           |
