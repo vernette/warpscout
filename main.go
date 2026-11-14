@@ -183,6 +183,11 @@ func runScanCmd(ctx context.Context, opts options) error {
 	// Nothing to report: say so on stderr and fail, instead of leaving a report
 	// file whose only content is "No working endpoints found".
 	if !anyEndpoint(ph) {
+		if opts.streamJSON {
+			_ = writeJSONStreamDone(os.Stdout, ph)
+		} else if opts.jsonOut {
+			_ = writeJSON(os.Stdout, ph)
+		}
 		return fmt.Errorf("%s", noEndpointMsg(opts))
 	}
 
@@ -202,6 +207,10 @@ func runScanCmd(ctx context.Context, opts options) error {
 	case opts.best:
 		outErr = printBest(os.Stdout, ph)
 	case opts.conf == confStdout:
+	case opts.jsonOut:
+		outErr = writeJSON(os.Stdout, ph)
+	case opts.streamJSON:
+		outErr = writeJSONStreamDone(os.Stdout, ph)
 	default:
 		writeConsole(os.Stdout, ph, consoleRenderer(os.Stdout), opts.tunPingCheck)
 	}
@@ -217,7 +226,7 @@ func runScanCmd(ctx context.Context, opts options) error {
 	}
 
 	reportPath := opts.output
-	if reportPath == "" && (opts.best || opts.conf == confStdout) {
+	if reportPath == "" && (opts.best || opts.conf == confStdout || opts.jsonOut || opts.streamJSON) {
 		return outErr
 	}
 	if reportPath == "" {
@@ -234,7 +243,7 @@ func runScanCmd(ctx context.Context, opts options) error {
 // wantMeta is what only scan sets, and only scan prints the tables that repeat
 // the live feed endpoint for endpoint.
 func tablesFollow(opts options) bool {
-	return opts.wantMeta && !opts.best && opts.conf != confStdout
+	return opts.wantMeta && !opts.best && opts.conf != confStdout && !opts.jsonOut && !opts.streamJSON
 }
 
 func showsSpeed(opts options) bool {
@@ -450,6 +459,10 @@ func runScanUI(ctx context.Context, cancel context.CancelFunc, opts options, run
 }
 
 func runWithUI(opts options, cancel context.CancelFunc, ping bool, header, quitHint string, work func(emitter)) error {
+	if opts.streamJSON {
+		work(newJSONStreamEmitter(os.Stdout).emit)
+		return nil
+	}
 	if usePlainOutput(opts) {
 		work(plainEmit)
 		return nil
@@ -492,7 +505,7 @@ func runWithUI(opts options, cancel context.CancelFunc, ping bool, header, quitH
 }
 
 func usePlainOutput(opts options) bool {
-	return opts.plain || os.Getenv("NO_COLOR") != "" || !isTerminal(os.Stderr)
+	return opts.plain || opts.jsonOut || opts.streamJSON || os.Getenv("NO_COLOR") != "" || !isTerminal(os.Stderr)
 }
 
 func runScan(ctx context.Context, opts options, run protoRun, ips []netip.Addr, timeout time.Duration, emit emitter) (phaseResult, error) {
@@ -553,7 +566,7 @@ func runScan(ctx context.Context, opts options, run protoRun, ips []netip.Addr, 
 			}
 			found := foundMsg{endpoint: endpoint, epPing: r.epPing, tunPing: r.tunPing, loss: r.loss, measured: r.measured, torn: !r.durable}
 			if opts.wantMeta {
-				found.exit, found.colo = exitRegion(t), exitColo(t)
+				found.exit, found.colo, found.meta = exitRegion(t), exitColo(t), t
 			}
 			emit(found)
 		}

@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -52,6 +53,170 @@ func TestWriteConsolePalette(t *testing.T) {
 	writeConsole(&colored, ph, rColor, false)
 	if !strings.Contains(colored.String(), "\033") {
 		t.Error("colored console output should contain ANSI escapes")
+	}
+}
+
+func TestWriteJSON(t *testing.T) {
+	ph := phaseResult{
+		run: protoRun{kindWG, "wg"},
+		results: []endpointResult{{
+			ip:       netip.MustParseAddr("8.47.69.86"),
+			exit:     metaResult{loc: "Russia", colo: "DME", coloCity: "Moscow", coloISO: "RU"},
+			endpoint: "8.47.69.86:2408",
+			epPing:   42 * time.Millisecond,
+			tunPing:  55 * time.Millisecond,
+			loss:     0.0,
+			ok:       true,
+			durable:  true,
+		}},
+	}
+
+	var buf bytes.Buffer
+	if err := writeJSON(&buf, ph); err != nil {
+		t.Fatalf("writeJSON failed: %v", err)
+	}
+
+	var res jsonDone
+	if err := json.Unmarshal(buf.Bytes(), &res); err != nil {
+		t.Fatalf("invalid json: %v\noutput: %s", err, buf.String())
+	}
+	if res.Proto != "wg" {
+		t.Errorf("got proto %q, want wg", res.Proto)
+	}
+	if res.Total != 1 || res.WorkingCount != 1 {
+		t.Errorf("got total %d, working %d; want 1, 1", res.Total, res.WorkingCount)
+	}
+	if res.Best != "8.47.69.86:2408" {
+		t.Errorf("got best %q, want 8.47.69.86:2408", res.Best)
+	}
+	if len(res.Picks) != 1 || res.Picks[0].Port != 2408 || res.Picks[0].Node != "DME" {
+		t.Errorf("unexpected picks: %+v", res.Picks)
+	}
+}
+
+func TestWriteJSONStreamDone(t *testing.T) {
+	ph := phaseResult{
+		run: protoRun{kindWG, "wg"},
+		results: []endpointResult{{
+			ip:       netip.MustParseAddr("8.47.69.86"),
+			exit:     metaResult{loc: "Russia", colo: "DME", coloCity: "Moscow", coloISO: "RU"},
+			endpoint: "8.47.69.86:2408",
+			ok:       true,
+			durable:  true,
+		}},
+	}
+
+	var buf bytes.Buffer
+	if err := writeJSONStreamDone(&buf, ph); err != nil {
+		t.Fatalf("writeJSONStreamDone failed: %v", err)
+	}
+
+	var ev jsonDoneEvent
+	if err := json.Unmarshal(buf.Bytes(), &ev); err != nil {
+		t.Fatalf("invalid json stream done event: %v", err)
+	}
+	if ev.Event != "done" {
+		t.Errorf("got event %q, want done", ev.Event)
+	}
+	if ev.WorkingCount != 1 || ev.Best != "8.47.69.86:2408" {
+		t.Errorf("unexpected done event payload: %+v", ev)
+	}
+}
+
+func TestJSONStreamEmitterConcurrency(t *testing.T) {
+	var buf bytes.Buffer
+	emitter := newJSONStreamEmitter(&buf)
+
+	emitter.emit(barBeginMsg{total: 100})
+
+	const numWorkers = 10
+	const msgsPerWorker = 20
+	var wg sync.WaitGroup
+	wg.Add(numWorkers)
+
+	for w := 0; w < numWorkers; w++ {
+		go func(workerID int) {
+			defer wg.Done()
+			for i := 0; i < msgsPerWorker; i++ {
+				emitter.emit(probedMsg{})
+				emitter.emit(foundMsg{
+					endpoint: fmt.Sprintf("1.2.%d.%d:2408", workerID, i),
+					colo:     "HEL",
+					exit:     "Finland",
+					epPing:   25 * time.Millisecond,
+					measured: true,
+				})
+			}
+		}(w)
+	}
+	wg.Wait()
+
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	expectedCount := 1 + numWorkers*msgsPerWorker*2
+	if len(lines) != expectedCount {
+		t.Fatalf("got %d lines, want %d", len(lines), expectedCount)
+	}
+
+	for i, line := range lines {
+		var raw map[string]any
+		if err := json.Unmarshal([]byte(line), &raw); err != nil {
+			t.Fatalf("line %d is not valid JSON: %v\ncontent: %q", i, err, line)
+		}
+		if _, ok := raw["event"]; !ok {
+			t.Errorf("line %d missing event field: %s", i, line)
+		}
+	}
+}
+
+func TestJSONStreamEmitterEvents(t *testing.T) {
+	var buf bytes.Buffer
+	emitter := newJSONStreamEmitter(&buf)
+
+	// Step error
+	emitter.emit(stepMsg{fail: true, summary: "no reachable WARP port"})
+
+	// Speedtest phase progress
+	emitter.emit(barBeginMsg{label: "Speedtest phase: measuring picked endpoints", total: 3})
+	emitter.emit(probedMsg{})
+
+	// Endpoint with meta
+	emitter.emit(foundMsg{
+		endpoint: "1.2.3.4:2408",
+		colo:     "HEL",
+		exit:     "Finland",
+		meta:     metaResult{loc: "Finland", colo: "HEL", coloCity: "Helsinki", coloISO: "FI"},
+		epPing:   25 * time.Millisecond,
+		loss:     0.1,
+	})
+
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) != 4 {
+		t.Fatalf("got %d lines, want 4", len(lines))
+	}
+
+	var errEv struct {
+		Event, Error string
+	}
+	if err := json.Unmarshal([]byte(lines[0]), &errEv); err != nil || errEv.Event != "error" || errEv.Error != "no reachable WARP port" {
+		t.Errorf("unexpected error event: %+v", errEv)
+	}
+
+	var progEv struct {
+		Event, Phase string
+		Done, Total  int
+	}
+	if err := json.Unmarshal([]byte(lines[1]), &progEv); err != nil || progEv.Phase != "speed" || progEv.Total != 3 {
+		t.Errorf("unexpected speed barBegin event: %+v", progEv)
+	}
+	if err := json.Unmarshal([]byte(lines[2]), &progEv); err != nil || progEv.Phase != "speed" || progEv.Done != 1 {
+		t.Errorf("unexpected speed probed event: %+v", progEv)
+	}
+
+	var epEv struct {
+		Event, Endpoint, Node, City, Country, Location string
+	}
+	if err := json.Unmarshal([]byte(lines[3]), &epEv); err != nil || epEv.Event != "endpoint" || epEv.City != "Helsinki" || epEv.Country != "FI" {
+		t.Errorf("unexpected endpoint event: %+v", epEv)
 	}
 }
 

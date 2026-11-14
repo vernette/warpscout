@@ -111,4 +111,4 @@ That flag runs the speed phase by itself, so the scan takes as long as with `-sp
 
 Besides the on-screen tables WARPSCOUT writes `warpscout-report-<timestamp>.txt`: a commented header, then every working endpoint, then the torn-down ones, and the best endpoint per node at the end. A flat list with no box drawing, easy to feed to `awk` and friends.
 
-`-o FILE` changes the name, `-no-report` skips the file. `-best` and `-conf -` suppress it on their own, and `-o` forces it back on.
+`-o FILE` changes the name, `-no-report` skips the file. `-best`, `-conf -`, `-json` and `-stream-json` suppress it on their own, and `-o` forces it back on.
