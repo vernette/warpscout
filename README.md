@@ -117,6 +117,8 @@ If you want a specific archive by hand, here is what to take:
 | Linux on ARM (Raspberry Pi, some VPS)  | `linux_arm64.tar.gz`   |
 | OpenWrt router, x86_64                 | `linux_amd64.tar.gz`   |
 | OpenWrt router, ARM64                  | `linux_arm64.tar.gz`   |
+| OpenWrt router, MIPS (MT7621, MT76x8)  | `linux_mipsle.tar.gz`  |
+| OpenWrt router, MIPS big-endian        | `linux_mips.tar.gz`    |
 | Android, in Termux                     | `android_arm64.tar.gz` |
 
 ## Quick start

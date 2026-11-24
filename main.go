@@ -377,7 +377,7 @@ func noEndpointMsg(opts options) string {
 		return masqueBlockedMsg
 	}
 	if opts.genI1 == "" {
-		if opts.proto == protoAWG {
+		if isAWGName(opts.proto) {
 			return "no working endpoints found - try -gen-i1 quic"
 		}
 		return "no working endpoints found - try -p awg -gen-i1 quic"

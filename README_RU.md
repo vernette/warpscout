@@ -117,6 +117,8 @@ curl -fsSL https://raw.githubusercontent.com/vernette/warpscout/master/install.s
 | Linux на ARM (Raspberry Pi, часть VPS) | `linux_arm64.tar.gz`   |
 | Роутер с OpenWrt, x86_64               | `linux_amd64.tar.gz`   |
 | Роутер с OpenWrt, ARM64                | `linux_arm64.tar.gz`   |
+| Роутер с OpenWrt, MIPS (MT7621, MT76x8) | `linux_mipsle.tar.gz` |
+| Роутер с OpenWrt, MIPS big-endian      | `linux_mips.tar.gz`    |
 | Android, в Termux                      | `android_arm64.tar.gz` |
 
 ## Быстрый старт

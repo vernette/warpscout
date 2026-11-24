@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -12,9 +13,10 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
-	"github.com/amnezia-vpn/amneziawg-go/tun/netstack"
+	"github.com/amnezia-vpn/amneziawg-go/v3/tun/netstack"
 )
 
 const (
@@ -160,6 +162,7 @@ const (
 	socksVersion  = 5
 	socksNoAuth   = 0
 	socksConnect  = 1
+	socksUDPAssoc = 3
 	socksOK       = 0
 	socksRefused  = 5
 	socksBadCmd   = 7
@@ -171,32 +174,166 @@ const (
 	// the in-tunnel DNS lookup plus a TCP connect, both of which are slow through a
 	// nested tunnel.
 	socksDialTimeout = 10 * time.Second
+	socksUDPBuffer   = 65535
+	socksUDPIdle     = 60 * time.Second
 )
 
 func serveSOCKS(ctx context.Context, c net.Conn, tnet *netstack.Net) {
 	defer c.Close()
-	target, err := socksHandshake(c)
+	cmd, target, err := socksHandshake(c)
 	if err != nil {
+		return
+	}
+	if cmd == socksUDPAssoc {
+		serveUDPAssoc(ctx, c, tnet)
 		return
 	}
 	dialCtx, cancel := context.WithTimeout(ctx, socksDialTimeout)
 	defer cancel()
 	target, err = resolveInTunnel(dialCtx, tnet, target)
 	if err != nil {
-		socksReply(c, socksRefused)
+		socksReply(c, socksRefused, netip.AddrPort{})
 		return
 	}
 	remote, err := tnet.DialContext(dialCtx, "tcp", target)
 	if err != nil {
-		socksReply(c, socksRefused)
+		socksReply(c, socksRefused, netip.AddrPort{})
 		return
 	}
 	defer remote.Close()
-	if err := socksReply(c, socksOK); err != nil {
+	if err := socksReply(c, socksOK, netip.AddrPort{}); err != nil {
 		return
 	}
 	go io.Copy(remote, c)
 	io.Copy(c, remote)
+}
+
+func serveUDPAssoc(ctx context.Context, c net.Conn, tnet *netstack.Net) {
+	local, err := netip.ParseAddrPort(c.LocalAddr().String())
+	if err != nil {
+		socksReply(c, socksRefused, netip.AddrPort{})
+		return
+	}
+	pc, err := net.ListenUDP("udp", net.UDPAddrFromAddrPort(netip.AddrPortFrom(local.Addr(), 0)))
+	if err != nil {
+		socksReply(c, socksRefused, netip.AddrPort{})
+		return
+	}
+	defer pc.Close()
+
+	bound, err := netip.ParseAddrPort(pc.LocalAddr().String())
+	if err != nil {
+		socksReply(c, socksRefused, netip.AddrPort{})
+		return
+	}
+	if err := socksReply(c, socksOK, bound); err != nil {
+		return
+	}
+
+	go func() {
+		<-ctx.Done()
+		pc.Close()
+	}()
+	go func() {
+		io.Copy(io.Discard, c)
+		pc.Close()
+	}()
+	relayUDP(ctx, pc, tnet)
+}
+
+func relayUDP(ctx context.Context, pc *net.UDPConn, tnet *netstack.Net) {
+	var mu sync.Mutex
+	conns := map[string]net.Conn{}
+	defer func() {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, rc := range conns {
+			rc.Close()
+		}
+	}()
+
+	buf := make([]byte, socksUDPBuffer)
+	for {
+		n, client, err := pc.ReadFromUDPAddrPort(buf)
+		if err != nil {
+			return
+		}
+		hdr, dst, payload, err := parseUDPRequest(buf[:n])
+		if err != nil {
+			continue
+		}
+		mu.Lock()
+		rc, ok := conns[string(hdr)]
+		if !ok {
+			rc, err = dialInTunnelUDP(ctx, tnet, dst)
+			if err == nil {
+				conns[string(hdr)] = rc
+				go func(hdr []byte, rc net.Conn, client netip.AddrPort) {
+					relayUDPReplies(pc, rc, hdr, client)
+					mu.Lock()
+					delete(conns, string(hdr))
+					mu.Unlock()
+					rc.Close()
+				}(append([]byte(nil), hdr...), rc, client)
+			}
+		}
+		mu.Unlock()
+		if err != nil {
+			continue
+		}
+		rc.Write(payload)
+	}
+}
+
+func relayUDPReplies(pc *net.UDPConn, rc net.Conn, hdr []byte, client netip.AddrPort) {
+	buf := make([]byte, len(hdr)+socksUDPBuffer)
+	copy(buf, hdr)
+	for {
+		if err := rc.SetReadDeadline(time.Now().Add(socksUDPIdle)); err != nil {
+			return
+		}
+		n, err := rc.Read(buf[len(hdr):])
+		if err != nil {
+			return
+		}
+		if _, err := pc.WriteToUDPAddrPort(buf[:len(hdr)+n], client); err != nil {
+			return
+		}
+	}
+}
+
+func dialInTunnelUDP(ctx context.Context, tnet *netstack.Net, dst string) (net.Conn, error) {
+	dialCtx, cancel := context.WithTimeout(ctx, socksDialTimeout)
+	defer cancel()
+	dst, err := resolveInTunnel(dialCtx, tnet, dst)
+	if err != nil {
+		return nil, err
+	}
+	ap, err := netip.ParseAddrPort(dst)
+	if err != nil {
+		return nil, err
+	}
+	return tnet.DialUDPAddrPort(netip.AddrPort{}, ap)
+}
+
+func parseUDPRequest(b []byte) (hdr []byte, dst string, payload []byte, err error) {
+	if len(b) < 4 {
+		return nil, "", nil, fmt.Errorf("socks udp datagram of %d bytes", len(b))
+	}
+	if b[2] != 0 {
+		return nil, "", nil, fmt.Errorf("socks udp fragment %d", b[2])
+	}
+	r := bytes.NewReader(b[4:])
+	host, err := socksAddr(r, b[3])
+	if err != nil {
+		return nil, "", nil, err
+	}
+	port := make([]byte, socksPortSize)
+	if _, err := io.ReadFull(r, port); err != nil {
+		return nil, "", nil, err
+	}
+	rest := len(b) - r.Len()
+	return b[:rest], net.JoinHostPort(host, strconv.Itoa(int(binary.BigEndian.Uint16(port)))), b[rest:], nil
 }
 
 // Resolved inside the tunnel, never on the host: a host lookup would leak the
@@ -223,44 +360,42 @@ func resolveInTunnel(ctx context.Context, tnet *netstack.Net, target string) (st
 	return net.JoinHostPort(preferV4(ips), port), nil
 }
 
-// No authentication and CONNECT only: no consumer of this command uses BIND or
-// UDP ASSOCIATE.
-func socksHandshake(rw io.ReadWriter) (string, error) {
+func socksHandshake(rw io.ReadWriter) (byte, string, error) {
 	head := make([]byte, 2)
 	if _, err := io.ReadFull(rw, head); err != nil {
-		return "", err
+		return 0, "", err
 	}
 	if head[0] != socksVersion {
-		return "", fmt.Errorf("socks version %d", head[0])
+		return 0, "", fmt.Errorf("socks version %d", head[0])
 	}
 	if _, err := io.ReadFull(rw, make([]byte, head[1])); err != nil {
-		return "", err
+		return 0, "", err
 	}
 	if _, err := rw.Write([]byte{socksVersion, socksNoAuth}); err != nil {
-		return "", err
+		return 0, "", err
 	}
 
 	req := make([]byte, 4)
 	if _, err := io.ReadFull(rw, req); err != nil {
-		return "", err
+		return 0, "", err
 	}
 	if req[0] != socksVersion {
-		return "", fmt.Errorf("socks version %d", req[0])
+		return 0, "", fmt.Errorf("socks version %d", req[0])
 	}
-	if req[1] != socksConnect {
-		socksReply(rw, socksBadCmd)
-		return "", fmt.Errorf("socks command %d is not CONNECT", req[1])
+	if req[1] != socksConnect && req[1] != socksUDPAssoc {
+		socksReply(rw, socksBadCmd, netip.AddrPort{})
+		return 0, "", fmt.Errorf("socks command %d is neither CONNECT nor UDP ASSOCIATE", req[1])
 	}
 
 	host, err := socksAddr(rw, req[3])
 	if err != nil {
-		return "", err
+		return 0, "", err
 	}
 	port := make([]byte, socksPortSize)
 	if _, err := io.ReadFull(rw, port); err != nil {
-		return "", err
+		return 0, "", err
 	}
-	return net.JoinHostPort(host, strconv.Itoa(int(binary.BigEndian.Uint16(port)))), nil
+	return req[1], net.JoinHostPort(host, strconv.Itoa(int(binary.BigEndian.Uint16(port)))), nil
 }
 
 func socksAddr(r io.Reader, atyp byte) (string, error) {
@@ -293,9 +428,18 @@ func socksAddr(r io.Reader, atyp byte) (string, error) {
 	return addr.String(), nil
 }
 
-// The bound address is what the client is told, and no client of a CONNECT-only
-// proxy reads it, so the all-zero IPv4 placeholder stands in for it.
-func socksReply(w io.Writer, rep byte) error {
-	_, err := w.Write([]byte{socksVersion, rep, 0, socksIPv4, 0, 0, 0, 0, 0, 0})
+func socksReply(w io.Writer, rep byte, bound netip.AddrPort) error {
+	if !bound.IsValid() {
+		_, err := w.Write([]byte{socksVersion, rep, 0, socksIPv4, 0, 0, 0, 0, 0, 0})
+		return err
+	}
+	addr := bound.Addr().Unmap()
+	atyp := byte(socksIPv4)
+	if !addr.Is4() {
+		atyp = socksIPv6
+	}
+	msg := append([]byte{socksVersion, rep, 0, atyp}, addr.AsSlice()...)
+	msg = binary.BigEndian.AppendUint16(msg, bound.Port())
+	_, err := w.Write(msg)
 	return err
 }

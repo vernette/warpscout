@@ -19,7 +19,7 @@ import (
 
 	"golang.org/x/crypto/curve25519"
 
-	"github.com/amnezia-vpn/amneziawg-go/tun/netstack"
+	"github.com/amnezia-vpn/amneziawg-go/v3/tun/netstack"
 	"github.com/charmbracelet/bubbles/progress"
 )
 

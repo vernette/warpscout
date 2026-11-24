@@ -22,7 +22,7 @@ import (
 
 	connectip "github.com/Diniboy1123/connect-ip-go"
 	"github.com/Diniboy1123/usque/api"
-	"github.com/amnezia-vpn/amneziawg-go/tun"
+	"github.com/amnezia-vpn/amneziawg-go/v3/tun"
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
 )
