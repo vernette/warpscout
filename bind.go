@@ -6,7 +6,7 @@ import (
 	"net/netip"
 	"strconv"
 
-	"github.com/amnezia-vpn/amneziawg-go/conn"
+	"github.com/amnezia-vpn/amneziawg-go/v3/conn"
 )
 
 // SO_BINDTODEVICE rather than a source-IP bind, which cannot route traffic into
