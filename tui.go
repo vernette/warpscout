@@ -36,6 +36,7 @@ type (
 		measured bool
 		exit     string
 		colo     string
+		result   endpointResult
 		torn     bool
 	}
 	speedMsg struct {

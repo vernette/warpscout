@@ -65,6 +65,8 @@ type options struct {
 	full           bool
 	plain          bool
 	emoji          bool
+	jsonOut        bool
+	streamJSON     bool
 }
 
 type flagSpec struct {
@@ -143,6 +145,8 @@ var (
 		{"", "best-by", "ping|speed", "what makes an endpoint best, both for -best/-conf and for the order of every table: lowest ping (default) or highest download speed (runs the -speed phase, so it takes much longer)"},
 		{"", "plain", "", "force plain line output (no live TUI)"},
 		{"", "emoji", "", "prefix the colo region with a country flag emoji (rendering depends on the terminal)"},
+		{"", "json", "", "print scan results as JSON on stdout"},
+		{"", "stream-json", "", "stream progress and results as newline-delimited JSON on stdout (for GUIs)"},
 	}}
 
 	registerGroup = flagGroup{"Registration", append([]flagSpec{
@@ -301,6 +305,8 @@ func setupScanFlags(fs *flag.FlagSet, o *options) {
 	fs.BoolVar(&o.noDNS, "no-dns", false, "")
 	fs.BoolVar(&o.plain, "plain", false, "")
 	fs.BoolVar(&o.emoji, "emoji", false, "")
+	fs.BoolVar(&o.jsonOut, "json", false, "")
+	fs.BoolVar(&o.streamJSON, "stream-json", false, "")
 	o.wantMeta = true
 }
 
@@ -601,6 +607,14 @@ func validateMTU(o options) {
 func rejectBestConfStdout(o options) {
 	if o.best && o.conf == confStdout {
 		fmt.Fprintln(os.Stderr, "-best and -conf - both write to stdout: use one or the other")
+		os.Exit(2)
+	}
+	if (o.jsonOut || o.streamJSON) && (o.best || o.conf == confStdout) {
+		fmt.Fprintln(os.Stderr, "-json/-stream-json writes to stdout: cannot combine with -best or -conf -")
+		os.Exit(2)
+	}
+	if o.jsonOut && o.streamJSON {
+		fmt.Fprintln(os.Stderr, "-json and -stream-json: use one or the other")
 		os.Exit(2)
 	}
 }
