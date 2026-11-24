@@ -44,6 +44,8 @@ warpscout scan -p awg -conf -
 warpscout scan -p awg -conf - > warp.conf
 ```
 
+`-configs N` writes configs for the top N endpoints of the run (e.g. `warp-1.conf`, `warp-2.conf`, etc.). Use `-conf FILE` alongside it to customize the base filename and extension (default `warp.conf`, `config.json` for MASQUE, or `warp.yaml` for mihomo). If fewer than N working endpoints are available, all available ones are generated and a notice explains how many were written.
+
 | Flag          | What it does                                                                   |
 | ------------- | -------------------------------------------------------------------------------- |
 | `-table-off`  | Keep the config from touching routes. For when you route traffic yourself         |

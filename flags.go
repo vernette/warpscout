@@ -28,6 +28,7 @@ type options struct {
 	endpoint       string
 	output         string
 	conf           string
+	configs        int
 	confType       string
 	bestBy         string
 	sweepPorts     string
@@ -132,6 +133,7 @@ var (
 		{"o", "output", "FILE", "full per-endpoint report file (default warpscout-report-<timestamp>.txt)"},
 		{"", "no-report", "", "skip the report file entirely (overrides -o)"},
 		{"", "conf", "FILE", "write a ready-to-import config for the best endpoint (\"-\" prints it instead)"},
+		{"", "configs", "N", "write configs for the top N endpoints (-conf sets the base filename, default warp.conf)"},
 		{"", "conf-type", "KIND", "format of -conf: native (wg/awg .conf, usque config.json), mihomo or mihomo-json"},
 		{"", "table-off", "", "add \"Table = off\" to the generated config: bring the interface up without touching routes"},
 		{"", "mtu", "N", "set MTU in the generated config (default: leave the line out)"},
@@ -294,6 +296,7 @@ func setupScanFlags(fs *flag.FlagSet, o *options) {
 	fs.BoolVar(&o.best, "best", false, "")
 	fs.StringVar(&o.bestBy, "best-by", bestKeyPing, "")
 	fs.StringVar(&o.conf, "conf", "", "")
+	fs.IntVar(&o.configs, "configs", 0, "")
 	fs.StringVar(&o.confType, "conf-type", confTypeNative, "")
 	fs.StringVar(&masqueSNI, "masque-sni", masqueDefaultSNI, "")
 	fs.IntVar(&masqueAttempts, "masque-attempts", masqueDefaultAttempts, "")
@@ -412,6 +415,7 @@ func applyCommonFlags(fs *flag.FlagSet, o *options) {
 	validateJunkParams()
 	validateAWG31(fs, *o)
 	validateMTU(*o)
+	validateConfigs(fs, *o)
 	validateConfType(*o)
 	validateSweepPorts(*o)
 	applyPingTarget(*o)
@@ -602,6 +606,29 @@ func validateMTU(o options) {
 	}
 }
 
+func checkConfigs(configs int, conf string, visited bool) error {
+	if visited && configs < 1 {
+		return fmt.Errorf("-configs (%d) must be at least 1", configs)
+	}
+	if configs > 0 && conf == confStdout {
+		return fmt.Errorf("-configs needs file output, not stdout (\"-\")")
+	}
+	return nil
+}
+
+func validateConfigs(fs *flag.FlagSet, o options) {
+	configsVisited := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "configs" {
+			configsVisited = true
+		}
+	})
+	if err := checkConfigs(o.configs, o.conf, configsVisited); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+}
+
 // Both write a machine-readable artifact to stdout, so together they produce a
 // config with an endpoint line glued on top of it - not a config any client reads.
 func rejectBestConfStdout(o options) {
@@ -682,8 +709,8 @@ func validateConfType(o options) {
 		fmt.Fprintf(os.Stderr, "-conf-type %q must be one of %s\n", o.confType, strings.Join(confTypes, ", "))
 		os.Exit(2)
 	}
-	if o.conf == "" && o.confType != confTypeNative {
-		fmt.Fprintln(os.Stderr, "-conf-type needs -conf FILE")
+	if o.conf == "" && o.configs == 0 && o.confType != confTypeNative {
+		fmt.Fprintln(os.Stderr, "-conf-type needs -conf FILE or -configs N")
 		os.Exit(2)
 	}
 	if o.tableOff && isMihomo(o.confType) {
@@ -696,8 +723,8 @@ func applyDNS(o *options) {
 	if o.dns == "" && !o.noDNS {
 		return
 	}
-	if o.conf == "" {
-		fmt.Fprintln(os.Stderr, "-dns and -no-dns need -conf FILE")
+	if o.conf == "" && o.configs == 0 {
+		fmt.Fprintln(os.Stderr, "-dns and -no-dns need -conf FILE or -configs N")
 		os.Exit(2)
 	}
 	if o.dns != "" && o.noDNS {
