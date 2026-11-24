@@ -89,6 +89,11 @@ paru -S warpscout      # сборка из исходников
 paru -S warpscout-bin  # готовый бинарник из релиза
 ```
 
+Графические оболочки над WARPSCOUT (их делают и сопровождают их авторы, а не этот репозиторий - вопросы и баги туда):
+
+- [HattabbI4/warpscout-gui](https://github.com/HattabbI4/warpscout-gui) - приложение для Windows 10/11
+- [3inker/warpscout-gui](https://github.com/3inker/warpscout-gui) - кроссплатформенное приложение
+
 Docker - см. [запуск в Docker](docs/ru/docker.md).
 
 Сборка из исходников, Go 1.25 или новее:

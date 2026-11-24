@@ -89,6 +89,11 @@ paru -S warpscout      # build from source
 paru -S warpscout-bin  # prebuilt release binary
 ```
 
+Graphical front-ends for WARPSCOUT (built and maintained by their authors, not by this repository - send questions and bugs there):
+
+- [HattabbI4/warpscout-gui](https://github.com/HattabbI4/warpscout-gui) - a Windows 10/11 app
+- [3inker/warpscout-gui](https://github.com/3inker/warpscout-gui) - a cross-platform app
+
 Docker - see [running in Docker](docs/en/docker.md).
 
 From source, Go 1.25 or newer:
