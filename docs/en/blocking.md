@@ -23,12 +23,12 @@ You can also supply a raw packet with `-i1 PKT`, or send none at all with `-i1 n
 
 Three numbers control them:
 
-| Flag        | Meaning                                    |
-| ----------- | -------------------------------------------- |
-| `-jc N`     | How many junk packets to send (default 6)   |
-| `-jmin N`   | Smallest junk packet size (default 10)      |
-| `-jmax N`   | Largest junk packet size (default 50)       |
-| `-gen-junk` | Randomise all three for this run            |
+| Flag        | Meaning                                   |
+| ----------- | ----------------------------------------- |
+| `-jc N`     | How many junk packets to send (default 6) |
+| `-jmin N`   | Smallest junk packet size (default 10)    |
+| `-jmax N`   | Largest junk packet size (default 50)     |
+| `-gen-junk` | Randomise all three for this run          |
 
 The defaults work on most networks. On their own these rarely unblock anything, so always start with `-gen-i1`.
 
@@ -47,6 +47,27 @@ The command rescans with a fresh random set until one gets at least `-threshold`
 ![WARPSCOUT find-junk](../../.github/assets/warpscout-find-junk.png)
 
 The command is AmneziaWG-only and verifies endpoints by handshake and ping alone, so the region and node columns stay empty.
+
+## AmneziaWG 3.1: -p awg31
+
+`-p awg31` is the same AmneziaWG with junk and `I1`, plus the client-side parameters of AmneziaWG 3.1. All of them are optional and take a number `N` or a range `MIN-MAX`, from which a random value is picked each time:
+
+| Flag                       | Parameter in .conf       | Meaning                                                      |
+| -------------------------- | ------------------------ | ------------------------------------------------------------ |
+| `-padding RANGE`           | `ContentPaddingAddition` | Random bytes inside every data packet                        |
+| `-rekey-after RANGE`       | `RekeyAfterTime`         | Seconds before a session re-handshakes                       |
+| `-rekey-timeout RANGE`     | `RekeyTimeout`           | Seconds to wait for a handshake answer                       |
+| `-reject-after RANGE`      | `RejectAfterTime`        | Seconds after which a session's keys are refused             |
+| `-keepalive-timeout RANGE` | `KeepaliveTimeout`       | Seconds of silence before a keepalive                        |
+| `-max-handshakes RANGE`    | `MaxHandshakeAttempts`   | How many times to retry a handshake                          |
+| `-disable-cookies`         | `DisableCookies`         | Never send cookie replies                                    |
+| `-random-trailers`         | `RandomTrailers`         | Random tail on handshake packets, zeroes inside data packets |
+
+```sh
+warpscout scan -p awg31 -P -padding 16-128 -conf awg31.conf
+```
+
+The 3.1 parameters do not replace `I1`: if tunnels get cut, start with `-gen-i1`. Keep `-padding` small (up to about 128 bytes) - a large padding can cause cuts on its own. Do not set `-reject-after` below `-rekey-after` (120 by default): the keys expire before the rekey and traffic stalls. `HeaderProtectionKey` is not supported: the server would need the key too, and WARP has none. The client must support AmneziaWG 3.1: for `-conf-type mihomo` that is mihomo 1.19.34 or later (the config carries `version: 3`).
 
 ## If AmneziaWG does not get through at all
 
