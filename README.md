@@ -279,7 +279,7 @@ The full flag list of any command is `warpscout <command> -h`, for example `.\wa
 - [The WARP account](docs/en/account.md) - what `register` does, what the account file holds, registering from a blocked network
 - [Getting past blocking](docs/en/blocking.md) - AmneziaWG obfuscation, `-gen-i1`, junk packets, `find-junk`
 - [MASQUE](docs/en/masque.md) - `-p masque` and `-p masque-h2`, picking an SNI, usque configs
-- [Configs and filters](docs/en/configs.md) - `-conf` formats, DNS and MTU, `-target`, the speed phase, the report format
+- [Configs and filters](docs/en/configs.md) - `-conf` formats, DNS and MTU, `-target`, the speed phase, the report format, JSON for scripts
 - [SOCKS5 proxy](docs/en/socks.md) - check one endpoint with third-party services
 - [WARP-in-WARP](docs/en/warp-in-warp.md) - scanning from inside another WARP tunnel
 - [Docker](docs/en/docker.md) - running in a container

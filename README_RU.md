@@ -279,7 +279,7 @@ curl -fsSL https://raw.githubusercontent.com/vernette/warpscout/master/install.s
 - [Аккаунт WARP](docs/ru/account.md) - что делает `register`, что лежит в файле аккаунта, регистрация из заблокированной сети
 - [Обход блокировок](docs/ru/blocking.md) - маскировка AmneziaWG, `-gen-i1`, junk-пакеты, `find-junk`
 - [MASQUE](docs/ru/masque.md) - `-p masque` и `-p masque-h2`, подбор SNI, конфиги usque
-- [Конфиги и фильтры](docs/ru/configs.md) - форматы `-conf`, DNS и MTU, `-target`, замер скорости, формат отчёта
+- [Конфиги и фильтры](docs/ru/configs.md) - форматы `-conf`, DNS и MTU, `-target`, замер скорости, формат отчёта, JSON для скриптов
 - [SOCKS5-прокси](docs/ru/socks.md) - проверить конкретный эндпоинт сторонними сервисами
 - [WARP-in-WARP](docs/ru/warp-in-warp.md) - скан изнутри другого туннеля WARP
 - [Docker](docs/ru/docker.md) - запуск в контейнере

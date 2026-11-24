@@ -112,3 +112,15 @@ That flag runs the speed phase by itself, so the scan takes as long as with `-sp
 Besides the on-screen tables WARPSCOUT writes `warpscout-report-<timestamp>.txt`: a commented header, then every working endpoint, then the torn-down ones, and the best endpoint per node at the end. A flat list with no box drawing, easy to feed to `awk` and friends.
 
 `-o FILE` changes the name, `-no-report` skips the file. `-best`, `-conf -`, `-json` and `-stream-json` suppress it on their own, and `-o` forces it back on.
+
+## JSON for scripts
+
+`-json` prints the scan result to stdout as one JSON document: every working endpoint, the torn-down ones, the best one per node and the one `-best` would pick.
+
+```sh
+warpscout scan -p awg -P -json > result.json
+```
+
+`-stream-json` writes events one per line while the scan runs: `progress` with the phase and a counter, `endpoint` for every checked endpoint, `error` when a phase fails, and finally `done` carrying the same document `-json` prints. This is the format for GUI wrappers.
+
+The fields are named after the table columns: `seen_as`, `node`, `node_city`, `node_country`, `ping_ms`, `tun_ping_ms`, `loss_pct`, `speed_mbps`. Anything not measured comes as `null`. The format is described by the schema [warpscout-v1.schema.json](../../schema/warpscout-v1.schema.json).
