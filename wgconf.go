@@ -108,6 +108,19 @@ func renderIface(o options, endpoint string, run protoRun) string {
 			fmt.Fprintf(&b, "I1 = %s\n", awgI1)
 		}
 	}
+	if run.isAWG31() {
+		for _, p := range awg31Ranges {
+			if p.value != "" {
+				fmt.Fprintf(&b, "%s = %s\n", p.conf, p.value)
+			}
+		}
+		if awgDisableCookies {
+			fmt.Fprintf(&b, "DisableCookies = on\n")
+		}
+		if awgRandomTrailers {
+			fmt.Fprintf(&b, "RandomTrailers = on\n")
+		}
+	}
 
 	fmt.Fprintf(&b, "\n[Peer]\n")
 	fmt.Fprintf(&b, "PublicKey = %s\n", warpPublicKey)
@@ -467,12 +480,30 @@ func mihomoPeer(run protoRun, ipv6 bool, host string, port int) ([]kv, error) {
 		return p, nil
 	}
 
-	awg := []kv{{"jc", awgJc}, {"jmin", awgJmin}, {"jmax", awgJmax}, {"s1", 0}, {"s2", 0}}
+	var awg []kv
+	// mihomo runs the legacy AmneziaWG engine unless version is 3.
+	if run.isAWG31() {
+		awg = append(awg, kv{"version", 3})
+	}
+	awg = append(awg, kv{"jc", awgJc}, kv{"jmin", awgJmin}, kv{"jmax", awgJmax}, kv{"s1", 0}, kv{"s2", 0})
 	for i, h := range []int{1, 2, 3, 4} {
 		awg = append(awg, kv{fmt.Sprintf("h%d", i+1), h})
 	}
 	if awgI1 != "" {
 		awg = append(awg, kv{"i1", awgI1})
+	}
+	if run.isAWG31() {
+		for _, r := range awg31Ranges {
+			if r.value != "" {
+				awg = append(awg, kv{r.mihomo, r.value})
+			}
+		}
+		if awgDisableCookies {
+			awg = append(awg, kv{"disable-cookies", true})
+		}
+		if awgRandomTrailers {
+			awg = append(awg, kv{"random-trailers", true})
+		}
 	}
 	return append(p, kv{"amnezia-wg-option", awg}), nil
 }

@@ -219,7 +219,7 @@ func TestBestByPing(t *testing.T) {
 }
 
 func TestBaseUAPI(t *testing.T) {
-	wg, err := baseUAPI(false)
+	wg, err := baseUAPI(protoRun{kindWG, protoWG})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +230,7 @@ func TestBaseUAPI(t *testing.T) {
 		t.Error("plain WireGuard config must not contain junk params")
 	}
 
-	awg, err := baseUAPI(true)
+	awg, err := baseUAPI(protoRun{kindAWG, protoAWG})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -560,7 +560,7 @@ func TestBaseUAPINoInitPacket(t *testing.T) {
 	defer func() { awgI1 = orig }()
 
 	awgI1 = ""
-	awg, err := baseUAPI(true)
+	awg, err := baseUAPI(protoRun{kindAWG, protoAWG})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -574,7 +574,7 @@ func TestBaseUAPIOverridesJunkParams(t *testing.T) {
 	defer func() { awgJc = orig }()
 
 	awgJc = 99
-	awg, err := baseUAPI(true)
+	awg, err := baseUAPI(protoRun{kindAWG, protoAWG})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1744,5 +1744,43 @@ func TestReadVersionCache(t *testing.T) {
 	}
 	if _, ok := readVersionCache(filepath.Join(t.TempDir(), "absent"), time.Hour); ok {
 		t.Error("a missing cache must miss")
+	}
+}
+
+func TestAWG31Params(t *testing.T) {
+	orig := awg31Ranges[0].value
+	defer func() { awg31Ranges[0].value, awgDisableCookies, awgRandomTrailers = orig, false, false }()
+	awg31Ranges[0].value, awgDisableCookies, awgRandomTrailers = "16-64", true, true
+
+	awg, err := baseUAPI(protoRun{kindAWG, protoAWG})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(awg, "content_padding_addition") || strings.Contains(awg, "disable_cookies") {
+		t.Errorf("awg must not carry 3.1 params: %q", awg)
+	}
+	awg31, err := baseUAPI(protoRun{kindAWG31, protoAWG31})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"jc=", "content_padding_addition=16-64", "disable_cookies=true", "random_trailers=true"} {
+		if !strings.Contains(awg31, want) {
+			t.Errorf("awg31 UAPI missing %q: %q", want, awg31)
+		}
+	}
+	yaml, err := renderMihomoConf(options{confType: confTypeMihomo}, "188.114.98.5:2408", protoRun{kindAWG31, protoAWG31})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"version: 3", "content-padding-addition: 16-64", "disable-cookies: true", "random-trailers: true"} {
+		if !strings.Contains(string(yaml), want) {
+			t.Errorf("awg31 mihomo config missing %q:\n%s", want, yaml)
+		}
+	}
+	conf := renderConf(options{}, "188.114.98.5:2408", protoRun{kindAWG31, protoAWG31})
+	for _, want := range []string{"Jc = ", "ContentPaddingAddition = 16-64", "DisableCookies = on", "RandomTrailers = on"} {
+		if !strings.Contains(conf, want) {
+			t.Errorf("awg31 conf missing %q:\n%s", want, conf)
+		}
 	}
 }

@@ -111,7 +111,24 @@ func base64ToHex(b64 string) (string, error) {
 	return hex.EncodeToString(raw), nil
 }
 
-func baseUAPI(awg bool) (string, error) {
+type awgRange struct {
+	flag, uapi, conf, mihomo, help string
+	value                  string
+}
+
+// HeaderProtectionKey is omitted: it encrypts the headers, so the peer must hold the key.
+var awg31Ranges = []*awgRange{
+	{flag: "padding", uapi: "content_padding_addition", conf: "ContentPaddingAddition", mihomo: "content-padding-addition", help: "random bytes appended inside every data packet"},
+	{flag: "rekey-after", uapi: "rekey_after_time", conf: "RekeyAfterTime", mihomo: "rekey-after-time", help: "seconds before a session re-handshakes"},
+	{flag: "rekey-timeout", uapi: "rekey_timeout", conf: "RekeyTimeout", mihomo: "rekey-timeout", help: "seconds to wait for a handshake answer before retrying"},
+	{flag: "reject-after", uapi: "reject_after_time", conf: "RejectAfterTime", mihomo: "reject-after-time", help: "seconds after which a session's keys are refused"},
+	{flag: "keepalive-timeout", uapi: "keepalive_timeout", conf: "KeepaliveTimeout", mihomo: "keepalive-timeout", help: "seconds of silence after sent data before a keepalive"},
+	{flag: "max-handshakes", uapi: "max_handshake_attempts", conf: "MaxHandshakeAttempts", mihomo: "max-handshake-attempts", help: "handshake retries before giving up"},
+}
+
+var awgDisableCookies, awgRandomTrailers bool
+
+func baseUAPI(run protoRun) (string, error) {
 	privHex, err := base64ToHex(warpPrivateKey)
 	if err != nil {
 		return "", fmt.Errorf("private key: %w", err)
@@ -119,7 +136,7 @@ func baseUAPI(awg bool) (string, error) {
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "private_key=%s\n", privHex)
-	if awg {
+	if run.isAWG() {
 		fmt.Fprintf(&b, "jc=%d\n", awgJc)
 		fmt.Fprintf(&b, "jmin=%d\n", awgJmin)
 		fmt.Fprintf(&b, "jmax=%d\n", awgJmax)
@@ -127,6 +144,18 @@ func baseUAPI(awg bool) (string, error) {
 			fmt.Fprintf(&b, "i1=%s\n", awgI1)
 		}
 	}
+	if run.isAWG31() {
+		for _, p := range awg31Ranges {
+			if p.value != "" {
+				fmt.Fprintf(&b, "%s=%s\n", p.uapi, p.value)
+			}
+		}
+		if awgDisableCookies {
+			fmt.Fprintf(&b, "disable_cookies=true\n")
+		}
+		if awgRandomTrailers {
+			fmt.Fprintf(&b, "random_trailers=true\n")
+		}	}
 	return b.String(), nil
 }
 
@@ -151,6 +180,7 @@ type protoKind int
 const (
 	kindWG protoKind = iota
 	kindAWG
+	kindAWG31
 	kindMASQUE
 	kindMASQUEH2
 )
@@ -163,11 +193,16 @@ type protoRun struct {
 const (
 	protoWG       = "wg"
 	protoAWG      = "awg"
+	protoAWG31    = "awg31"
 	protoMASQUE   = "masque"
 	protoMASQUEH2 = "masque-h2"
 )
 
-func (r protoRun) isAWG() bool { return r.kind == kindAWG }
+// awg31 is awg plus the 3.1 parameters, so every awg branch covers it.
+func (r protoRun) isAWG() bool   { return r.kind == kindAWG || r.kind == kindAWG31 }
+func (r protoRun) isAWG31() bool { return r.kind == kindAWG31 }
+
+func isAWGName(p string) bool { return p == protoAWG || p == protoAWG31 }
 
 // Both MASQUE kinds run the same CONNECT-IP tunnel and differ only in the
 // transport underneath it, so everything that branches on "is this MASQUE"
@@ -178,6 +213,7 @@ func (r protoRun) isH2() bool     { return r.kind == kindMASQUEH2 }
 var protoRuns = []protoRun{
 	{kindWG, protoWG},
 	{kindAWG, protoAWG},
+	{kindAWG31, protoAWG31},
 	{kindMASQUE, protoMASQUE},
 	{kindMASQUEH2, protoMASQUEH2},
 }
@@ -188,5 +224,5 @@ func parseProto(p string) (protoRun, error) {
 			return r, nil
 		}
 	}
-	return protoRun{}, fmt.Errorf("invalid -proto %q: use wg, awg, masque or masque-h2", p)
+	return protoRun{}, fmt.Errorf("invalid -proto %q: use wg, awg, awg31, masque or masque-h2", p)
 }

@@ -51,7 +51,7 @@ func newTunnel(run protoRun) (tunnel, error) {
 	if run.isMASQUE() {
 		return newMasqueTunnel(run.isH2())
 	}
-	return newWGTunnel(run.isAWG())
+	return newWGTunnel(run)
 }
 
 type wgTunnel struct {
@@ -59,8 +59,8 @@ type wgTunnel struct {
 	dev *device.Device
 }
 
-func newWGTunnel(awg bool) (*wgTunnel, error) {
-	base, err := baseUAPI(awg)
+func newWGTunnel(run protoRun) (*wgTunnel, error) {
+	base, err := baseUAPI(run)
 	if err != nil {
 		return nil, err
 	}
