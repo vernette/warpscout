@@ -19,7 +19,7 @@ fi
 INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_DIR}"
 
 for c in curl wget; do
-  if command -v "$c" >/dev/null 2>&1; then
+  if type "$c" >/dev/null 2>&1; then
     DOWNLOADER="$c"
     break
   fi
