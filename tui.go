@@ -36,7 +36,7 @@ type (
 		measured bool
 		exit     string
 		colo     string
-		meta     metaResult
+		result   endpointResult
 		torn     bool
 	}
 	speedMsg struct {

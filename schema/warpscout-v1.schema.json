@@ -1,0 +1,284 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/vernette/warpscout/master/schema/warpscout-v1.schema.json",
+  "title": "warpscout scan -json document and -stream-json events, version 1",
+  "description": "scan -json prints one result document. scan -stream-json prints one event per line: progress and endpoint events while the scan runs, an error event when a phase fails, and a done event carrying the same result document.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/result"
+    },
+    {
+      "$ref": "#/$defs/progressEvent"
+    },
+    {
+      "$ref": "#/$defs/endpointEvent"
+    },
+    {
+      "$ref": "#/$defs/doneEvent"
+    },
+    {
+      "$ref": "#/$defs/errorEvent"
+    }
+  ],
+  "$defs": {
+    "countryCode": {
+      "type": "string",
+      "pattern": "^[A-Z]{2}$"
+    },
+    "country": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/countryCode"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "nullableString": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "milliseconds": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "endpoint": {
+      "type": "object",
+      "required": [
+        "endpoint",
+        "ip",
+        "port",
+        "seen_as",
+        "node",
+        "node_city",
+        "node_country",
+        "ping_ms",
+        "tun_ping_ms",
+        "loss_pct",
+        "speed_mbps",
+        "measured",
+        "torn"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "endpoint": {
+          "type": "string",
+          "description": "ip:port, IPv6 in brackets"
+        },
+        "ip": {
+          "type": "string"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "seen_as": {
+          "$ref": "#/$defs/country",
+          "description": "exit region external services see (SEEN AS)"
+        },
+        "node": {
+          "oneOf": [
+            {
+              "type": "string",
+              "pattern": "^[A-Z]{3}$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "IATA code of the WARP edge node (NODE)"
+        },
+        "node_city": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "node_country": {
+          "$ref": "#/$defs/country"
+        },
+        "ping_ms": {
+          "$ref": "#/$defs/milliseconds",
+          "description": "ENDPOINT PING; null when no ICMP answer or no permission"
+        },
+        "tun_ping_ms": {
+          "$ref": "#/$defs/milliseconds",
+          "description": "TUN PING; null unless measured"
+        },
+        "loss_pct": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100,
+          "description": "in-tunnel packet loss in percent; null unless measured"
+        },
+        "speed_mbps": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "description": "download speed; null unless measured (-speed)"
+        },
+        "measured": {
+          "type": "boolean",
+          "description": "the in-tunnel burst ran (-tun-ping)"
+        },
+        "torn": {
+          "type": "boolean",
+          "description": "handshake ok, then cut mid-stream"
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "required": [
+        "$schema",
+        "version",
+        "proto",
+        "total",
+        "working_count",
+        "best",
+        "picks",
+        "working",
+        "torn"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "$schema": {
+          "const": "https://raw.githubusercontent.com/vernette/warpscout/master/schema/warpscout-v1.schema.json"
+        },
+        "version": {
+          "const": 1
+        },
+        "proto": {
+          "enum": [
+            "wg",
+            "awg",
+            "awg31",
+            "masque",
+            "masque-h2"
+          ]
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "endpoints probed"
+        },
+        "working_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "best": {
+          "$ref": "#/$defs/nullableString",
+          "description": "the endpoint -best prints"
+        },
+        "picks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/endpoint"
+          },
+          "description": "best endpoint per node"
+        },
+        "working": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/endpoint"
+          },
+          "description": "every working endpoint, best first"
+        },
+        "torn": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/endpoint"
+          },
+          "description": "torn-down endpoints"
+        }
+      }
+    },
+    "progressEvent": {
+      "type": "object",
+      "required": [
+        "event",
+        "phase",
+        "done",
+        "total"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "event": {
+          "const": "progress"
+        },
+        "phase": {
+          "enum": [
+            "ports",
+            "tunnels",
+            "speed"
+          ]
+        },
+        "done": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "endpointEvent": {
+      "type": "object",
+      "required": [
+        "event",
+        "endpoint"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "event": {
+          "const": "endpoint"
+        },
+        "endpoint": {
+          "$ref": "#/$defs/endpoint"
+        }
+      }
+    },
+    "doneEvent": {
+      "type": "object",
+      "required": [
+        "event",
+        "result"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "event": {
+          "const": "done"
+        },
+        "result": {
+          "$ref": "#/$defs/result"
+        }
+      }
+    },
+    "errorEvent": {
+      "type": "object",
+      "required": [
+        "event",
+        "error"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "event": {
+          "const": "error"
+        },
+        "error": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

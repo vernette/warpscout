@@ -183,10 +183,8 @@ func runScanCmd(ctx context.Context, opts options) error {
 	// Nothing to report: say so on stderr and fail, instead of leaving a report
 	// file whose only content is "No working endpoints found".
 	if !anyEndpoint(ph) {
-		if opts.streamJSON {
-			_ = writeJSONStreamDone(os.Stdout, ph)
-		} else if opts.jsonOut {
-			_ = writeJSON(os.Stdout, ph)
+		if opts.jsonOut || opts.streamJSON {
+			_ = writeJSONResult(os.Stdout, ph, opts.streamJSON)
 		}
 		return fmt.Errorf("%s", noEndpointMsg(opts))
 	}
@@ -207,10 +205,8 @@ func runScanCmd(ctx context.Context, opts options) error {
 	case opts.best:
 		outErr = printBest(os.Stdout, ph)
 	case opts.conf == confStdout:
-	case opts.jsonOut:
-		outErr = writeJSON(os.Stdout, ph)
-	case opts.streamJSON:
-		outErr = writeJSONStreamDone(os.Stdout, ph)
+	case opts.jsonOut || opts.streamJSON:
+		outErr = writeJSONResult(os.Stdout, ph, opts.streamJSON)
 	default:
 		writeConsole(os.Stdout, ph, consoleRenderer(os.Stdout), opts.tunPingCheck)
 	}
@@ -564,9 +560,9 @@ func runScan(ctx context.Context, opts options, run protoRun, ips []netip.Addr, 
 			} else if hrtt, pok := outer.pingTo(ip, timeout); pok {
 				r.epPing = hrtt
 			}
-			found := foundMsg{endpoint: endpoint, epPing: r.epPing, tunPing: r.tunPing, loss: r.loss, measured: r.measured, torn: !r.durable}
+			found := foundMsg{endpoint: endpoint, epPing: r.epPing, tunPing: r.tunPing, loss: r.loss, measured: r.measured, torn: !r.durable, result: r}
 			if opts.wantMeta {
-				found.exit, found.colo, found.meta = exitRegion(t), exitColo(t), t
+				found.exit, found.colo = exitRegion(t), exitColo(t)
 			}
 			emit(found)
 		}

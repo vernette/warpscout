@@ -3,34 +3,70 @@ package main
 import (
 	"encoding/json"
 	"io"
+	"math"
 	"net/netip"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+const (
+	jsonSchemaURL = "https://raw.githubusercontent.com/vernette/warpscout/master/schema/warpscout-v1.schema.json"
+	jsonVersion   = 1
+)
+
+const (
+	phasePorts   = "ports"
+	phaseTunnels = "tunnels"
+	phaseSpeed   = "speed"
+)
+
 type jsonEndpoint struct {
-	Endpoint  string  `json:"endpoint"`
-	IP        string  `json:"ip,omitempty"`
-	Port      int     `json:"port,omitempty"`
-	Node      string  `json:"node,omitempty"`
-	City      string  `json:"city,omitempty"`
-	Country   string  `json:"country,omitempty"`
-	Location  string  `json:"location,omitempty"`
-	PingMS    float64 `json:"ping_ms,omitempty"`
-	TunPingMS float64 `json:"tun_ping_ms,omitempty"`
-	Loss      float32 `json:"loss,omitempty"`
-	SpeedMbps float64 `json:"speed_mbps,omitempty"`
-	Durable   bool    `json:"durable"`
+	Endpoint    string   `json:"endpoint"`
+	IP          string   `json:"ip"`
+	Port        int      `json:"port"`
+	SeenAs      *string  `json:"seen_as"`
+	Node        *string  `json:"node"`
+	NodeCity    *string  `json:"node_city"`
+	NodeCountry *string  `json:"node_country"`
+	PingMS      *float64 `json:"ping_ms"`
+	TunPingMS   *float64 `json:"tun_ping_ms"`
+	LossPct     *float64 `json:"loss_pct"`
+	SpeedMbps   *float64 `json:"speed_mbps"`
+	Measured    bool     `json:"measured"`
+	Torn        bool     `json:"torn"`
+}
+
+type jsonResult struct {
+	Schema       string         `json:"$schema"`
+	Version      int            `json:"version"`
+	Proto        string         `json:"proto"`
+	Total        int            `json:"total"`
+	WorkingCount int            `json:"working_count"`
+	Best         *string        `json:"best"`
+	Picks        []jsonEndpoint `json:"picks"`
+	Working      []jsonEndpoint `json:"working"`
+	Torn         []jsonEndpoint `json:"torn"`
 }
 
 type jsonProgressEvent struct {
 	Event string `json:"event"`
-	Phase string `json:"phase,omitempty"`
+	Phase string `json:"phase"`
 	Done  int    `json:"done"`
 	Total int    `json:"total"`
+}
+
+type jsonEndpointEvent struct {
+	Event    string       `json:"event"`
+	Endpoint jsonEndpoint `json:"endpoint"`
+}
+
+type jsonDoneEvent struct {
+	Event  string     `json:"event"`
+	Result jsonResult `json:"result"`
 }
 
 type jsonErrorEvent struct {
@@ -38,72 +74,81 @@ type jsonErrorEvent struct {
 	Error string `json:"error"`
 }
 
-type jsonEndpointEvent struct {
-	Event string `json:"event"`
-	jsonEndpoint
+func optString(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
-type jsonDone struct {
-	Proto        string         `json:"proto"`
-	Total        int            `json:"total"`
-	WorkingCount int            `json:"working_count"`
-	Best         string         `json:"best,omitempty"`
-	Picks        []jsonEndpoint `json:"picks"`
-	Working      []jsonEndpoint `json:"working"`
-}
-
-type jsonDoneEvent struct {
-	Event string `json:"event"`
-	jsonDone
+func optMS(d time.Duration) *float64 {
+	if d <= 0 {
+		return nil
+	}
+	ms := float64(d.Microseconds()) / 1000
+	return &ms
 }
 
 func toJSONEndpoint(r endpointResult) jsonEndpoint {
 	ep := jsonEndpoint{
-		Endpoint:  r.endpoint,
-		Node:      r.exit.colo,
-		City:      r.exit.coloCity,
-		Country:   r.exit.coloISO,
-		Location:  r.exit.loc,
-		Loss:      r.loss,
-		SpeedMbps: r.speed,
-		Durable:   r.durable,
+		Endpoint:    r.endpoint,
+		IP:          r.ip.String(),
+		SeenAs:      optString(r.exit.loc),
+		Node:        optString(r.exit.colo),
+		NodeCity:    optString(r.exit.coloCity),
+		NodeCountry: optString(r.exit.coloISO),
+		PingMS:      optMS(r.epPing),
+		Measured:    r.measured,
+		Torn:        r.ok && !r.durable,
 	}
 	if ap, err := netip.ParseAddrPort(r.endpoint); err == nil {
-		ep.IP = ap.Addr().String()
-		ep.Port = int(ap.Port())
-	} else if r.ip.IsValid() {
-		ep.IP = r.ip.String()
+		ep.IP, ep.Port = ap.Addr().String(), int(ap.Port())
 	}
-	if r.epPing > 0 {
-		ep.PingMS = float64(r.epPing.Microseconds()) / 1000.0
+	if r.measured {
+		ep.TunPingMS = optMS(r.tunPing)
+		loss := math.Round(float64(r.loss)*1000) / 10
+		ep.LossPct = &loss
 	}
-	if r.tunPing > 0 {
-		ep.TunPingMS = float64(r.tunPing.Microseconds()) / 1000.0
+	if r.speed > 0 {
+		speed := math.Round(r.speed*10) / 10
+		ep.SpeedMbps = &speed
 	}
 	return ep
 }
 
-func makeJSONDone(ph phaseResult) jsonDone {
-	working := workingSorted(ph.results)
-	picks := nodePicks(working)
+func toJSONEndpoints(rs []endpointResult) []jsonEndpoint {
+	out := make([]jsonEndpoint, len(rs))
+	for i, r := range rs {
+		out[i] = toJSONEndpoint(r)
+	}
+	return out
+}
 
-	d := jsonDone{
+func makeJSONResult(ph phaseResult) jsonResult {
+	working := workingSorted(ph.results)
+	res := jsonResult{
+		Schema:       jsonSchemaURL,
+		Version:      jsonVersion,
 		Proto:        ph.run.name,
 		Total:        len(ph.results),
 		WorkingCount: len(working),
-		Picks:        make([]jsonEndpoint, len(picks)),
-		Working:      make([]jsonEndpoint, len(working)),
+		Picks:        toJSONEndpoints(nodePicks(working)),
+		Working:      toJSONEndpoints(working),
+		Torn:         toJSONEndpoints(tornSorted(ph.results)),
 	}
 	if best, ok := bestOverall(ph); ok {
-		d.Best = best.endpoint
+		res.Best = &best.endpoint
 	}
-	for i, p := range picks {
-		d.Picks[i] = toJSONEndpoint(p)
+	return res
+}
+
+func writeJSONResult(w io.Writer, ph phaseResult, stream bool) error {
+	if stream {
+		return json.NewEncoder(w).Encode(jsonDoneEvent{Event: "done", Result: makeJSONResult(ph)})
 	}
-	for i, w := range working {
-		d.Working[i] = toJSONEndpoint(w)
-	}
-	return d
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(makeJSONResult(ph))
 }
 
 type jsonStreamEmitter struct {
@@ -115,10 +160,7 @@ type jsonStreamEmitter struct {
 }
 
 func newJSONStreamEmitter(out io.Writer) *jsonStreamEmitter {
-	return &jsonStreamEmitter{
-		enc:   json.NewEncoder(out),
-		phase: "scan",
-	}
+	return &jsonStreamEmitter{enc: json.NewEncoder(out)}
 }
 
 func (e *jsonStreamEmitter) send(v any) {
@@ -127,78 +169,29 @@ func (e *jsonStreamEmitter) send(v any) {
 	_ = e.enc.Encode(v)
 }
 
+func phaseOf(label string) string {
+	switch {
+	case strings.HasPrefix(label, "Phase 1"):
+		return phasePorts
+	case strings.HasPrefix(label, "Speedtest"):
+		return phaseSpeed
+	}
+	return phaseTunnels
+}
+
 func (e *jsonStreamEmitter) emit(msg tea.Msg) {
 	switch m := msg.(type) {
 	case stepMsg:
 		if m.fail {
-			e.send(jsonErrorEvent{
-				Event: "error",
-				Error: m.summary,
-			})
+			e.send(jsonErrorEvent{Event: "error", Error: m.summary})
 		}
 	case barBeginMsg:
-		e.total = m.total
+		e.total, e.phase = m.total, phaseOf(m.label)
 		e.done.Store(0)
-		e.phase = "scan"
-		if strings.HasPrefix(m.label, "Speedtest") {
-			e.phase = "speed"
-		}
-		e.send(jsonProgressEvent{
-			Event: "progress",
-			Phase: e.phase,
-			Done:  0,
-			Total: m.total,
-		})
+		e.send(jsonProgressEvent{Event: "progress", Phase: e.phase, Done: 0, Total: m.total})
 	case probedMsg:
-		d := int(e.done.Add(1))
-		e.send(jsonProgressEvent{
-			Event: "progress",
-			Phase: e.phase,
-			Done:  d,
-			Total: e.total,
-		})
+		e.send(jsonProgressEvent{Event: "progress", Phase: e.phase, Done: int(e.done.Add(1)), Total: e.total})
 	case foundMsg:
-		if m.endpoint == "" {
-			return
-		}
-		ep := jsonEndpoint{
-			Endpoint: m.endpoint,
-			Node:     m.colo,
-			City:     m.meta.coloCity,
-			Country:  m.meta.coloISO,
-			Location: m.meta.loc,
-			Loss:     m.loss,
-			Durable:  !m.torn,
-		}
-		if ep.Location == "" {
-			ep.Location = m.exit
-		}
-		if ap, err := netip.ParseAddrPort(m.endpoint); err == nil {
-			ep.IP = ap.Addr().String()
-			ep.Port = int(ap.Port())
-		}
-		if m.epPing > 0 {
-			ep.PingMS = float64(m.epPing.Microseconds()) / 1000.0
-		}
-		if m.tunPing > 0 {
-			ep.TunPingMS = float64(m.tunPing.Microseconds()) / 1000.0
-		}
-		e.send(jsonEndpointEvent{
-			Event:        "endpoint",
-			jsonEndpoint: ep,
-		})
+		e.send(jsonEndpointEvent{Event: "endpoint", Endpoint: toJSONEndpoint(m.result)})
 	}
-}
-
-func writeJSON(w io.Writer, ph phaseResult) error {
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	return enc.Encode(makeJSONDone(ph))
-}
-
-func writeJSONStreamDone(w io.Writer, ph phaseResult) error {
-	return json.NewEncoder(w).Encode(jsonDoneEvent{
-		Event:    "done",
-		jsonDone: makeJSONDone(ph),
-	})
 }
