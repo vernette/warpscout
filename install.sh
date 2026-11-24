@@ -97,6 +97,14 @@ uninstall() {
   exit 0
 }
 
+mips_arch() {
+  case "$(dd if=/bin/sh bs=1 skip=5 count=1 2>/dev/null | od -An -tu1 | tr -d ' ')" in
+  1) ARCH="mipsle" ;;
+  2) ARCH="mips" ;;
+  *) die "Cannot detect the byte order of this MIPS CPU." ;;
+  esac
+}
+
 detect_platform() {
   # Termux reports itself as Linux under uname -s, only -o says Android.
   case "$(uname -o 2>/dev/null || uname -s)" in
@@ -109,6 +117,7 @@ detect_platform() {
   case "$(uname -m)" in
   x86_64 | amd64) ARCH="amd64" ;;
   aarch64 | arm64) ARCH="arm64" ;;
+  mips) mips_arch ;;
   *) die "Unsupported architecture: $(uname -m)." ;;
   esac
 }

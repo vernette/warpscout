@@ -17,6 +17,8 @@ jobs:
         include:
           - { goos: linux, goarch: amd64 }
           - { goos: linux, goarch: arm64 }
+          - { goos: linux, goarch: mips }
+          - { goos: linux, goarch: mipsle }
           - { goos: windows, goarch: amd64 }
           - { goos: darwin, goarch: amd64 }
           - { goos: darwin, goarch: arm64 }
@@ -32,6 +34,8 @@ jobs:
           CGO_ENABLED: 0
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
+          # MT76xx and most other router SoCs have no FPU.
+          GOMIPS: softfloat
         run: |
           BIN=warpscout
           [ "$GOOS" = windows ] && BIN=warpscout.exe
